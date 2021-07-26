@@ -1,707 +1,99 @@
 ---
-format_version: '8'
+format_version: '11'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 project_type: flutter
 trigger_map:
-- push_branch: master
-  workflow: deploy-all-uat-ad-hoc-htd-bundle
-- push_branch: develop
-  workflow: deploy-all-dev-ad-hoc
-- tag: v*.*.*+dev
-  workflow: deploy-all-uat
-- tag: v*.*.*
-  workflow: deploy-all-stores
+- push_branch: "*"
+  workflow: primary
+- pull_request_source_branch: "*"
+  workflow: primary
 workflows:
-  part-setup:
+  deploy:
     steps:
     - activate-ssh-key@4:
         run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
-    - git-clone@4: {}
+    - git-clone@6: {}
+    - script@1:
+        title: Do anything with Script step
+    - certificate-and-profile-installer@1: {}
     - flutter-installer@0:
         inputs:
-        - version: 1.22.6
         - is_update: 'false'
-    description: Pull the project from the repository and install pckages.
-  part-checks:
-    steps:
-    - flutter-analyze@0.3:
-        inputs:
-        - fail_severity: info
-        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
-    - flutter-test@0:
+    - cache-pull@2: {}
+    - flutter-analyze@0:
         inputs:
         - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
-    - script@1:
-        title: Open simulator
+    - flutter-test@1:
         inputs:
-        - content: open /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app
-    - flutter@0:
-        title: E2E tests
-    before_run: []
-    description: Linter, E2E, and unit tests
-  build-ios-uat-htd-bundle:
-    steps:
-    - set-ios-product-bundle-identifier@1:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+    - flutter-build@0:
         inputs:
-        - new_bundle_identifier: "$APP_BUNDLE_ID"
-        - project_path: "./ios/Runner.xcodeproj"
-    - set-xcode-build-number@1:
-        inputs:
-        - plist_path: ios/Runner/Info.plist
-        - build_short_version_string: "$APP_VERSION_NUMBER"
-    - certificate-and-profile-installer@1: {}
-    - flutter-build@0.13:
-        inputs:
-        - ios_additional_params: "--release -t lib/main_uat.dart"
-        - cache_level: none
-        - platform: ios
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: com.htdhealth.rni
-    before_run: []
-    description: Builds ios for staging environment
-  deploy-android-dev-bitrise:
-    steps:
-    - deploy-to-bitrise-io@1: {}
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-dev-apk
-    description: " "
-  build-ios-dev-htd-bundle:
-    steps:
-    - set-ios-product-bundle-identifier@1:
-        inputs:
-        - new_bundle_identifier: "$APP_BUNDLE_ID"
-        - project_path: "./ios/Runner.xcodeproj"
-    - set-xcode-build-number@1:
-        inputs:
-        - plist_path: ios/Runner/Info.plist
-        - build_short_version_string: "$APP_VERSION_NUMBER"
-    - certificate-and-profile-installer@1: {}
-    - flutter-build@0.13:
-        inputs:
-        - ios_additional_params: "--release"
-        - platform: ios
-        is_always_run: true
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: com.htdhealth.rni
-    before_run: []
-    description: Builds ios for development environment
-  build-ios-exp-htd-bundle:
-    steps:
-    - set-ios-product-bundle-identifier@1:
-        inputs:
-        - new_bundle_identifier: "$APP_BUNDLE_ID"
-        - project_path: "./ios/Runner.xcodeproj"
-    - set-xcode-build-number@1:
-        inputs:
-        - plist_path: ios/Runner/Info.plist
-        - build_short_version_string: "$APP_VERSION_NUMBER"
-    - certificate-and-profile-installer@1: {}
-    - flutter-build@0.13:
-        inputs:
-        - ios_additional_params: "--release -t lib/main_exp.dart"
-        - platform: ios
-        is_always_run: true
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: com.htdhealth.rni
-    before_run: []
-    description: Builds ios for exp environment
-  deploy-all-dev-ad-hoc:
-    steps:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+        - platform: both
     - xcode-archive@3:
         inputs:
-        - export_method: ad-hoc
-    - deploy-to-bitrise-io@1:
-        inputs:
-        - public_install_page_url_map_format: |-
-            {{range $index, $element := .}}
-                    {{$element.File}}|{{$element.URL}}
-            {{end}}
-    - slack@3.1:
-        inputs:
-        - webhook_url: "$SLACK_RNI_MOBILE_NOTIF_WEBHOOK"
-        - emoji: ":flutter:"
-        - message: "$GITHUB_PR_BODY"
-        - icon_url: ''
-        - from_username: Mobile app
-        - from_username_on_error: Mobile app
-        - icon_url_on_error: ''
-        - emoji_on_error: ":flutter:"
-        - thumb_url: "$GITHUB_PR_USER_AVATAR_URL"
-        - thumb_url_on_error: "$GITHUB_PR_USER_AVATAR_URL"
-        - fields: |
-            App|${BITRISE_APP_TITLE}
-            Branch|${BITRISE_GIT_BRANCH}
-            Workflow|${BITRISE_TRIGGERED_WORKFLOW_ID}
-            Build number|${BITRISE_BUILD_NUMBER}
-            Environment|${ENVIRONMENT_NAME}
-        - buttons: "$BITRISE_PUBLIC_INSTALL_PAGE_URL_MAP"
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-dev-apk
-    - build-ios-dev-htd-bundle
-    - part-get-github-data
-    description: Build and deploy applications for Android and iOS for the development
-      environment.
-    envs:
-    - opts:
-        is_expand: false
-      ENVIRONMENT_NAME: DEV
-  tests:
-    before_run:
-    - part-setup
-    - part-checks
-    description: Linter, E2E, and unit tests
-  deploy-all-exp-ad-hoc-htd-bundle:
-    steps:
-    - xcode-archive@3:
-        inputs:
-        - export_method: ad-hoc
-    - deploy-to-bitrise-io@1:
-        inputs:
-        - public_install_page_url_map_format: |-
-            {{range $index, $element := .}}
-                    {{$element.File}}|{{$element.URL}}
-            {{end}}
-    - slack@3.1:
-        inputs:
-        - webhook_url: "$SLACK_RNI_MOBILE_NOTIF_WEBHOOK"
-        - emoji: ":flutter:"
-        - message: "$GITHUB_PR_BODY"
-        - icon_url: ''
-        - from_username: Mobile app
-        - from_username_on_error: Mobile app
-        - icon_url_on_error: ''
-        - emoji_on_error: ":flutter:"
-        - thumb_url: "$GITHUB_PR_USER_AVATAR_URL"
-        - thumb_url_on_error: "$GITHUB_PR_USER_AVATAR_URL"
-        - fields: |
-            App|${BITRISE_APP_TITLE}
-            Branch|${BITRISE_GIT_BRANCH}
-            Workflow|${BITRISE_TRIGGERED_WORKFLOW_ID}
-            Build number|${BITRISE_BUILD_NUMBER}
-            Environment|${ENVIRONMENT_NAME}
-        - buttons: "$BITRISE_PUBLIC_INSTALL_PAGE_URL_MAP"
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-exp-apk
-    - build-ios-exp-htd-bundle
-    - part-get-github-data
-    description: Build and deploy applications for Android and iOS for the development
-      environment.
-    envs:
-    - opts:
-        is_expand: false
-      ENVIRONMENT_NAME: EXP
-  part-get-github-data:
-    steps:
-    - authenticate-with-github-oauth@0:
-        inputs:
-        - access_token: "$GITHUB_PERSONAL_ACCESS_TOKEN"
-        - username: "$GITHUB_USERNAME"
-        is_always_run: true
-    - script@1:
-        inputs:
-        - content: |-
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # debug log
-            set -x
-
-            data="q=repo:${BITRISEIO_GIT_REPOSITORY_OWNER}/${BITRISEIO_GIT_REPOSITORY_SLUG} hash:${BITRISE_GIT_COMMIT} is:pr"
-
-            pull_request_data=$(curl -n -G --data-urlencode "$data" "https://api.github.com/search/issues")
-
-            jq -r '.items[0].body' <<<$pull_request_data | envman add --key GITHUB_PR_BODY
-            avatar_url=$(jq -r '.items[0].user.avatar_url' <<<$pull_request_data)
-            avatar_url="${avatar_url}&size=128"
-            envman add --key GITHUB_PR_USER_AVATAR_URL --value $avatar_url
-        is_always_run: true
-    before_run: []
-    description: Build and deploy applications for Android and iOS for the development
-      environment.
-  deploy-ios-uat-testflight:
-    steps:
-    - xcode-archive@3:
-        inputs:
+        - project_path: "$BITRISE_PROJECT_PATH"
+        - scheme: "$BITRISE_SCHEME"
         - export_method: app-store
-    - deploy-to-itunesconnect-application-loader@0:
+        - configuration: Release
+    - deploy-to-itunesconnect-application-loader@1:
         inputs:
-        - password: "$APPLE_PASSWORD"
-        - app_password: "$APP_SPECIFIC_PASSWORD"
-        - itunescon_user: "$APPLE_EMAIL"
+        - password: "$appple_password"
+        - itunescon_user: "$apple_email"
     - deploy-to-bitrise-io@1: {}
-    before_run:
-    - part-setup
-    - part-checks
-    - build-ios-uat-client-bundle
-  build-ios-uat-client-bundle:
+    - cache-push@2: {}
+  deploy-ad-hoc-ios:
     steps:
-    - set-ios-product-bundle-identifier@1:
-        inputs:
-        - new_bundle_identifier: "$APP_BUNDLE_ID"
-        - project_path: "./ios/Runner.xcodeproj"
-    - set-xcode-build-number@1:
-        inputs:
-        - plist_path: ios/Runner/Info.plist
-        - build_short_version_string: "$APP_VERSION_NUMBER"
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@6: {}
     - script@1:
-        inputs:
-        - content: |
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # debug log
-            set -x
-
-            ls
-            cd ios/Runner.xcodeproj
-            ls
-            rm project.pbxproj
-            mv project-uat.pbxproj project.pbxproj
-            ls
+        title: Do anything with Script step
     - certificate-and-profile-installer@1: {}
-    - flutter-build@0.13:
+    - flutter-installer@0:
         inputs:
-        - ios_additional_params: "--release -t lib/main_uat.dart"
-        - cache_level: none
-        - platform: ios
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: edu.wvu.rni.health
-    before_run: []
-    description: Builds ios for staging environment
-  build-ios-prod:
-    steps:
-    - set-ios-product-bundle-identifier@1:
+        - is_update: 'false'
+    - cache-pull@2: {}
+    - flutter-analyze@0:
         inputs:
-        - new_bundle_identifier: "$APP_BUNDLE_ID"
-        - project_path: "./ios/Runner.xcodeproj"
-    - set-xcode-build-number@1:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+    - flutter-test@1:
         inputs:
-        - plist_path: ios/Runner/Info.plist
-        - build_short_version_string: "$APP_VERSION_NUMBER"
-    - script@1:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+    - flutter-build@0:
         inputs:
-        - content: "#!/usr/bin/env bash\n# fail if any commands fails\nset -e\n# debug
-            log\nset -x\n\n# Set rni app bundle project\nmv ios/Runner.xcodeproj/project-uat.pbxproj
-            ios/Runner.xcodeproj/project.pbxproj\n# Set prod env crashlytics\nmv ios/Runner/GoogleService-Info-prod.plist
-            ios/Runner/GoogleService-Info.plist \n"
-        title: Set production configuration
-    - certificate-and-profile-installer@1: {}
-    - flutter-build@0.13:
-        inputs:
-        - ios_additional_params: "--release -t lib/main_production.dart"
-        - cache_level: none
-        - platform: ios
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: edu.wvu.rni.health
-    before_run: []
-    description: Builds ios for staging environment
-  deploy-all-uat:
-    steps:
-    - xcode-archive@3:
-        inputs:
-        - export_method: app-store
-    - deploy-to-bitrise-io@1: {}
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-uat-apk
-    - build-ios-uat-client-bundle
-    description: Build and deploy applications for Android and iOS for the UAT environment.
-  deploy-all-uat-ad-hoc-htd-bundle:
-    steps:
-    - xcode-archive@3:
-        inputs:
-        - export_method: ad-hoc
-    - deploy-to-bitrise-io@1:
-        inputs:
-        - public_install_page_url_map_format: |-
-            {{range $index, $element := .}}
-                    {{$element.File}}|{{$element.URL}}
-            {{end}}
-    - slack@3:
-        inputs:
-        - webhook_url: "$SLACK_RNI_MOBILE_NOTIF_WEBHOOK"
-        - emoji: ":flutter:"
-        - fields: |-
-            App|${BITRISE_APP_TITLE}
-            Branch|${BITRISE_GIT_BRANCH}
-            Workflow|${BITRISE_TRIGGERED_WORKFLOW_ID}
-            Build number|${BITRISE_BUILD_NUMBER}
-            Environment|${ENVIRONMENT_NAME}
-        - emoji_on_error: ":flutter:"
-        - from_username_on_error: Mobile app
-        - from_username: Mobile app
-        - buttons: "$BITRISE_PUBLIC_INSTALL_PAGE_URL_MAP"
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-uat-apk
-    - build-ios-uat-htd-bundle
-    description: Build and deploy applications for Android and iOS (ad hock) for the
-      UAT environment.
-    envs:
-    - opts:
-        is_expand: false
-      ENVIRONMENT_NAME: UAT
-  deploy-android-uat-bitrise:
-    steps:
-    - deploy-to-bitrise-io@1: {}
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-uat-apk
-    description: Deploy staging version of Android app
-  deploy-android-prod-store:
-    steps:
-    - deploy-to-bitrise-io@1: {}
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-prod-appbundle
-  deploy-all-stores:
-    steps:
-    - xcode-archive@3:
-        inputs:
-        - export_method: app-store
-    - deploy-to-itunesconnect-application-loader@1.1:
-        inputs:
-        - password: "$APPLE_PASSWORD"
-        - app_password: "$APP_SPECIFIC_PASSWORD"
-        - itunescon_user: "$APPLE_EMAIL"
-    - deploy-to-bitrise-io@1:
-        inputs:
-        - public_install_page_url_map_format: |-
-            {{range $index, $element := .}}
-                    {{$element.File}}|{{$element.URL}}
-            {{end}}
-    - slack@3:
-        inputs:
-        - webhook_url: "$SLACK_RNI_MOBILE_NOTIF_WEBHOOK"
-        - emoji: ":test_tube:"
-        - fields: |
-            App|${BITRISE_APP_TITLE}
-            Branch|${BITRISE_GIT_BRANCH}
-            Workflow|${BITRISE_TRIGGERED_WORKFLOW_ID}
-            Build number|${BITRISE_BUILD_NUMBER}
-            Environment|${ENVIRONMENT_NAME}
-        - buttons: "$BITRISE_PUBLIC_INSTALL_PAGE_URL_MAP"
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-prod-appbundle
-    - build-ios-prod
-    envs:
-    - opts:
-        is_expand: false
-      ENVIRONMENT_NAME: PROD
-  deploy-ios-uat-ad-hoc:
-    steps:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+        - platform: both
     - xcode-archive@3:
         inputs:
         - project_path: "$BITRISE_PROJECT_PATH"
         - scheme: "$BITRISE_SCHEME"
         - export_method: ad-hoc
-        - configuration: Release
+        - configuration: Profile
     - deploy-to-bitrise-io@1: {}
-    before_run:
-    - part-setup
-    - part-checks
-    - build-ios-uat-client-bundle
-  build-ios-prod-htd-bundle:
+    - cache-push@2: {}
+    - slack@3:
+        inputs:
+        - webhook_url: "$slack_webhook"
+  primary:
     steps:
-    - set-ios-product-bundle-identifier@1:
-        inputs:
-        - new_bundle_identifier: "$APP_BUNDLE_ID"
-        - project_path: "./ios/Runner.xcodeproj"
-    - set-xcode-build-number@1:
-        inputs:
-        - plist_path: ios/Runner/Info.plist
-        - build_short_version_string: "$APP_VERSION_NUMBER"
-    - certificate-and-profile-installer@1: {}
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@6: {}
     - script@1:
+        title: Do anything with Script step
+    - flutter-installer@0:
         inputs:
-        - content: |-
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # debug log
-            set -x
-
-            cd ios/Runner
-            rm GoogleService-Info.plist
-            mv GoogleService-Info-prod.plist GoogleService-Info.plist
-    - flutter-build@0.13:
+        - is_update: 'false'
+    - cache-pull@2: {}
+    - flutter-analyze@0:
         inputs:
-        - ios_additional_params: "--release -t lib/main_production.dart"
-        - android_additional_params: "--release -t lib/main_production.dart"
-        - platform: ios
-        is_always_run: true
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: com.htdhealth.rni
-    before_run: []
-    description: Builds ios for development environment
-  deploy-all-prod-ad-hoc-htd-bundle:
-    steps:
-    - xcode-archive@3:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+    - flutter-test@1:
         inputs:
-        - export_method: ad-hoc
-    - deploy-to-bitrise-io@1:
-        inputs:
-        - public_install_page_url_map_format: |-
-            {{range $index, $element := .}}
-                    {{$element.File}}|{{$element.URL}}
-            {{end}}
-    - slack@3:
-        inputs:
-        - webhook_url: "$SLACK_RNI_MOBILE_NOTIF_WEBHOOK"
-        - emoji: ":test_tube:"
-        - fields: |
-            App|${BITRISE_APP_TITLE}
-            Branch|${BITRISE_GIT_BRANCH}
-            Workflow|${BITRISE_TRIGGERED_WORKFLOW_ID}
-            Build number|${BITRISE_BUILD_NUMBER}
-            Environment|${ENVIRONMENT_NAME}
-        - buttons: "$BITRISE_PUBLIC_INSTALL_PAGE_URL_MAP"
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-prod-apk
-    - build-ios-prod-htd-bundle
-    description: Build and deploy applications for Android and iOS for the development
-      environment.
-    envs:
-    - opts:
-        is_expand: false
-      ENVIRONMENT_NAME: PROD
-  deploy-all-prod-ad-hoc-client-bundle:
-    steps:
-    - xcode-archive@3:
-        inputs:
-        - export_method: ad-hoc
-    - deploy-to-bitrise-io@1:
-        inputs:
-        - public_install_page_url_map_format: |-
-            {{range $index, $element := .}}
-                    {{$element.File}}|{{$element.URL}}
-            {{end}}
-    - slack@3:
-        inputs:
-        - webhook_url: "$SLACK_RNI_MOBILE_NOTIF_WEBHOOK"
-        - emoji: ":test_tube:"
-        - fields: |
-            App|${BITRISE_APP_TITLE}
-            Branch|${BITRISE_GIT_BRANCH}
-            Workflow|${BITRISE_TRIGGERED_WORKFLOW_ID}
-            Build number|${BITRISE_BUILD_NUMBER}
-            Environment|${ENVIRONMENT_NAME}
-        - buttons: "$BITRISE_PUBLIC_INSTALL_PAGE_URL_MAP"
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-prod-apk
-    - build-ios-prod
-    description: Build and deploy applications for Android and iOS for the development
-      environment.
-    envs:
-    - opts:
-        is_expand: false
-      ENVIRONMENT_NAME: PROD
-  deploy-all-uat-ad-hoc-client-bundle:
-    steps:
-    - xcode-archive@3:
-        inputs:
-        - export_method: ad-hoc
-    - deploy-to-bitrise-io@1:
-        inputs:
-        - public_install_page_url_map_format: |-
-            {{range $index, $element := .}}
-                    {{$element.File}}|{{$element.URL}}
-            {{end}}
-    - slack@3:
-        inputs:
-        - webhook_url: "$SLACK_RNI_MOBILE_NOTIF_WEBHOOK"
-        - emoji: ":test_tube:"
-        - fields: |
-            App|${BITRISE_APP_TITLE}
-            Branch|${BITRISE_GIT_BRANCH}
-            Workflow|${BITRISE_TRIGGERED_WORKFLOW_ID}
-            Build number|${BITRISE_BUILD_NUMBER}
-            Environment|${ENVIRONMENT_NAME}
-        - buttons: "$BITRISE_PUBLIC_INSTALL_PAGE_URL_MAP"
-    before_run:
-    - part-setup
-    - part-checks
-    - build-android-uat-apk
-    - build-ios-uat-client-bundle
-    description: Build and deploy applications for Android and iOS for the uat environment.
-    envs:
-    - opts:
-        is_expand: false
-      ENVIRONMENT_NAME: UAT
-  deploy-ios-prod-testflight:
-    steps:
-    - xcode-archive@3:
-        inputs:
-        - export_method: app-store
-    - deploy-to-itunesconnect-application-loader@1.1:
-        inputs:
-        - password: "$APPLE_PASSWORD"
-        - app_password: "$APP_SPECIFIC_PASSWORD"
-        - itunescon_user: "$APPLE_EMAIL"
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
     - deploy-to-bitrise-io@1: {}
-    before_run:
-    - part-setup
-    - part-checks
-    - build-ios-prod
-  build-android-prod-appbundle:
-    steps:
-    - change-android-versioncode-and-versionname@1.2:
-        inputs:
-        - build_gradle_path: "$BITRISE_SOURCE_DIR/android/app/build.gradle"
-        - new_version_name: '"$APP_VERSION_NUMBER"'
-    - set-android-manifest-package-name@0.9:
-        inputs:
-        - manifest_file: "$BITRISE_SOURCE_DIR/android/app/src/main/AndroidManifest.xml"
-        - package_name: "$APP_BUNDLE_ID"
-    - script@1:
-        inputs:
-        - content: |-
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # debug log
-            set -x
-            cd android/app
-            rm google-services.json
-            mv google-services-prod.json google-services.json
-    - flutter-build@0.13:
-        inputs:
-        - cache_level: none
-        - android_additional_params: "--release -t lib/main_production.dart"
-        - android_output_type: appbundle
-        - platform: android
-    - sign-apk@1.7: {}
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: edu.wvu.rni.health
-    before_run: []
-    description: 'Build an android application for development environment '
-  build-android-prod-apk:
-    steps:
-    - change-android-versioncode-and-versionname@1.2:
-        inputs:
-        - build_gradle_path: "$BITRISE_SOURCE_DIR/android/app/build.gradle"
-        - new_version_name: '"$APP_VERSION_NUMBER"'
-    - set-android-manifest-package-name@0.9:
-        inputs:
-        - manifest_file: "$BITRISE_SOURCE_DIR/android/app/src/main/AndroidManifest.xml"
-        - package_name: "$APP_BUNDLE_ID"
-    - script@1:
-        inputs:
-        - content: |-
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # debug log
-            set -x
-
-            cd android/app
-            rm google-services.json
-            mv google-services-prod.json google-services.json
-    - flutter-build@0.13:
-        inputs:
-        - cache_level: none
-        - android_additional_params: "--release -t lib/main_production.dart"
-        - platform: android
-    - sign-apk@1.7: {}
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: edu.wvu.rni.health
-    before_run: []
-    description: 'Build an android application for development environment '
-  build-android-dev-apk:
-    steps:
-    - change-android-versioncode-and-versionname@1.2:
-        inputs:
-        - build_gradle_path: "$BITRISE_SOURCE_DIR/android/app/build.gradle"
-        - new_version_name: '"$APP_VERSION_NUMBER"'
-    - set-android-manifest-package-name@0.9:
-        inputs:
-        - manifest_file: "$BITRISE_SOURCE_DIR/android/app/src/main/AndroidManifest.xml"
-        - package_name: "$APP_BUNDLE_ID"
-    - flutter-build@0.13:
-        inputs:
-        - cache_level: none
-        - platform: android
-    - sign-apk@1.7: {}
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: edu.wvu.rni.health
-    before_run: []
-    description: 'Build an android application for development environment '
-  build-android-uat-apk:
-    steps:
-    - change-android-versioncode-and-versionname@1.2:
-        inputs:
-        - build_gradle_path: "$BITRISE_SOURCE_DIR/android/app/build.gradle"
-        - new_version_name: '"$APP_VERSION_NUMBER"'
-    - set-android-manifest-package-name@0.9:
-        inputs:
-        - manifest_file: "$BITRISE_SOURCE_DIR/android/app/src/main/AndroidManifest.xml"
-        - package_name: "$APP_BUNDLE_ID"
-    - flutter-build@0.13:
-        inputs:
-        - android_additional_params: "--release -t lib/main_uat.dart"
-        - platform: android
-    - sign-apk@1.7: {}
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: edu.wvu.rni.health
-    before_run: []
-    description: 'Build an android application for staging environment '
-  build-android-exp-apk:
-    steps:
-    - change-android-versioncode-and-versionname@1.2:
-        inputs:
-        - build_gradle_path: "$BITRISE_SOURCE_DIR/android/app/build.gradle"
-        - new_version_name: '"$APP_VERSION_NUMBER"'
-    - set-android-manifest-package-name@0.9:
-        inputs:
-        - manifest_file: "$BITRISE_SOURCE_DIR/android/app/src/main/AndroidManifest.xml"
-        - package_name: "$APP_BUNDLE_ID"
-    - flutter-build@0.13:
-        inputs:
-        - android_additional_params: "--release -t lib/main_exp.dart"
-        - platform: android
-    - sign-apk@1.7: {}
-    envs:
-    - opts:
-        is_expand: false
-      APP_BUNDLE_ID: edu.wvu.rni.health
-    before_run: []
-    description: 'Build an android application for exp environment '
+    - cache-push@2: {}
 app:
   envs:
   - opts:
@@ -715,7 +107,4 @@ app:
     BITRISE_SCHEME: Runner
   - opts:
       is_expand: false
-    BITRISE_EXPORT_METHOD: development
-  - opts:
-      is_expand: false
-    APP_VERSION_NUMBER: 5.3.2
+    BITRISE_EXPORT_METHOD: app-store
