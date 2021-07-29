@@ -1,4 +1,4 @@
-package com.example.htd_power_skills
+package powerskills.example.app
 
 import io.flutter.embedding.android.FlutterActivity
 
